@@ -76,16 +76,32 @@ def morphological_constraint(exemplar_val, exemplar_form, exemplar_cat, clouds):
     sem_base_val = np.mean(clouds[related_cat][related_form])
     return (sem_base_val - exemplar_val)**2
 
+#category constraint: penalize forms with same inflectional category that are far from each other in nasalance
+#But see Burzio (2000, p.269) for reasons to believe ORAL and NAS don't attract each other. 
+def category_constraint(exemplar_val, exemplar_form, clouds):
+    category_penalty = 0.0
+    related_forms = category_pairs[exemplar_form]
+    for form in related_forms:
+        for cat, forms in clouds.items():
+            #find category the related form belongs to and calculate exemplar mean of that form
+            if form in forms:
+                related_form_mean = np.mean(clouds[cat][form])
+                break
+        category_penalty += (related_form_mean - exemplar_val)**2/len(related_forms)
+    return category_penalty
+
 ####Objective function - calculates penalty of current exemplar_val (filler for now)
 def objective(exemplar_val, exemplar_form, exemplar_cat, clouds):
             
     #Step 1: Determine the penalty scalars based on frequency (static for channel_constraint at this point)
     channel_constraint_scalar = 8
     morphological_constraint_scalar = 1
+    category_constraint_scalar = 1
     
     #Step 2: Calculate the penalty for the current exemplar
     return (channel_constraint(exemplar_val[0], exemplar_cat, clouds)*channel_constraint_scalar + 
-            morphological_constraint(exemplar_val[0], exemplar_form, exemplar_cat, clouds)*morphological_constraint_scalar)
+            morphological_constraint(exemplar_val[0], exemplar_form, exemplar_cat, clouds)*morphological_constraint_scalar + 
+            category_constraint(exemplar_val[0], exemplar_form, clouds)*category_constraint_scalar)
 
 ####Model Process
 def exemplar_accumulation(clouds, num_exemplars):
