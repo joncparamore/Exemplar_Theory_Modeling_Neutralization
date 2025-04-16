@@ -67,14 +67,25 @@ def channel_constraint(exemplar_val, exemplar_cat, clouds):
     else:
         return 0.0
 
+#morphological constraint:penalize morphologically related forms that are far from each other in nasalance
+def morphological_constraint(exemplar_val, exemplar_form, exemplar_cat, clouds):
+    if not exemplar_cat.endswith('-N'): #ensuring base forms are not drawn toward genitive forms by assigning a 0.0 penalty
+        return 0.0
+    related_form = semantic_pairs[exemplar_form][1] #assign morphologically related form to variable
+    related_cat = form_to_category[related_form] 
+    sem_base_val = np.mean(clouds[related_cat][related_form])
+    return (sem_base_val - exemplar_val)**2
+
 ####Objective function - calculates penalty of current exemplar_val (filler for now)
 def objective(exemplar_val, exemplar_form, exemplar_cat, clouds):
             
     #Step 1: Determine the penalty scalars based on frequency (static for channel_constraint at this point)
-    channel_constraint_scalar = 1
+    channel_constraint_scalar = 8
+    morphological_constraint_scalar = 1
     
     #Step 2: Calculate the penalty for the current exemplar
-    return channel_constraint(exemplar_val[0], exemplar_cat, clouds)*channel_constraint_scalar
+    return (channel_constraint(exemplar_val[0], exemplar_cat, clouds)*channel_constraint_scalar + 
+            morphological_constraint(exemplar_val[0], exemplar_form, exemplar_cat, clouds)*morphological_constraint_scalar)
 
 ####Model Process
 def exemplar_accumulation(clouds, num_exemplars):
