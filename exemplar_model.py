@@ -10,6 +10,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import scipy.optimize
 
 #for calculating how long the model needs to run for.
 start_time = time.perf_counter()
@@ -57,10 +58,23 @@ def random_noise(exemplar_val, exemplar_form, exemplar_cat, clouds):
     #set bounds of new_exemplar_val at (0, 1)
     return np.clip(exemplar_val_with_rand_noise, 0, 1)
 
+####constraints - functions to generate penalties for different constraints
+#channel constraint: penalize pre-N vowels that aren't very nasalized
+def channel_constraint(exemplar_val, exemplar_cat, clouds):
+    nas_mean = sum(np.mean(clouds['NAS'][form]) for form in clouds['NAS']) / len(clouds['NAS']) #determine mean value of nasal cloud
+    if exemplar_cat.endswith('-N'):
+        return (nas_mean - exemplar_val)**2
+    else:
+        return 0.0
+
 ####Objective function - calculates penalty of current exemplar_val (filler for now)
-def objective(exemplar_val):
-    exemplar_val = 0
-    return exemplar_val
+def objective(exemplar_val, exemplar_form, exemplar_cat, clouds):
+            
+    #Step 1: Determine the penalty scalars based on frequency (static for channel_constraint at this point)
+    channel_constraint_scalar = 1
+    
+    #Step 2: Calculate the penalty for the current exemplar
+    return channel_constraint(exemplar_val[0], exemplar_cat, clouds)*channel_constraint_scalar
 
 ####Model Process
 def exemplar_accumulation(clouds, num_exemplars):
@@ -93,16 +107,32 @@ def exemplar_accumulation(clouds, num_exemplars):
         #make the mean value of that form the starting value for the new exemplar (entrenchment)
         new_exemplar_val = np.mean(clouds[new_exemplar_cat][new_exemplar_form])
         
+        ##Step 2: Optimize the new exemplar
+        #restricting how much the exemplar val can change from biases to +/-.01 to minimize objective
+        lower_bound = max(0, new_exemplar_val - .075) #max movement of +/- .075 is arbitrary at this point but meant to avoid one fell swoop changes
+        upper_bound = min(1, new_exemplar_val + .075)
+        bounds = [(lower_bound, upper_bound)]
+        #define objective parameters
+        optimized_exemplar_val = scipy.optimize.minimize(fun = lambda x: objective(x, new_exemplar_form, new_exemplar_cat, clouds),
+                                                         x0 = [new_exemplar_val],
+                                                         method = 'SLSQP',
+                                                         bounds = bounds,
+                                                         options={'maxiter':1000, #limit the maximum number of iterations to 1000
+                                                                  'ftol':1e-4, #Sets the function tolerance to 1e-4, meaning the optimizer will stop when changes in the function value are smaller than this threshold.
+                                                                  'eps':1e-5, #sets step size of the Jacobian (step_size = gradient * Learning_Rate)
+                                                                  })
         
-        ##step 2: add random noise
-        new_exemplar_val = random_noise(new_exemplar_val, new_exemplar_form, new_exemplar_cat, clouds)
+        final_exemplar_val = optimized_exemplar_val.x[0]
         
-        ##Step 4: Categorize new exemplar into appropriate category\
-        final_exemplar_val = new_exemplar_val
+        ##step 3: add random noise
+        final_exemplar_val = random_noise(final_exemplar_val, new_exemplar_form, new_exemplar_cat, clouds)
+        
+        ##Step 4: Categorize new exemplar into appropriate category
         clouds[new_exemplar_cat][new_exemplar_form].append(final_exemplar_val)
         
         #append new exemplar to data_points list for plotting
         data_points.append((i, final_exemplar_val, new_exemplar_form))
+        
     ##Final Step: calculate mean of each form's exemplar cloud
     final_exemplar_means = {
     cat: {
