@@ -90,8 +90,8 @@ def category_constraint(exemplar_val, exemplar_form, clouds):
     return category_penalty
 
 #Define the frequency of each form. What approximate proportion of exemplars do you want from each form?
-category_frequencies = [.25, .8, .8, .75] #there are four categories in exemplar_clouds: [oral, nasal, oral-n, nasal-n]
-form_frequencies = [.5, .5] #there are two forms from each category in exemplar_clouds
+category_frequencies = [1, 1, 1, 1] #there are four categories in exemplar_clouds: [oral, nasal, oral-n, nasal-n]
+form_frequencies = [1, 1] #there are two forms from each category in exemplar_clouds
       
 ####Objective function - calculates penalty of current exemplar_val in relation to constraints and frequency of forms
 def objective(exemplar_val, exemplar_form, exemplar_cat, clouds):
@@ -114,7 +114,7 @@ def objective(exemplar_val, exemplar_form, exemplar_cat, clouds):
             total_exemplar_freq += len(forms[form])
             
     #Step 4: Determine the penalty scalars based on frequency (static for channel_constraint at this point)
-    channel_constraint_scalar = .75
+    channel_constraint_scalar = 1
     morphological_constraint_scalar = morph_base_form_freq / total_exemplar_freq
     category_constraint_scalar = cat_relation_freq / total_exemplar_freq
     
@@ -181,7 +181,7 @@ def exemplar_accumulation(clouds, num_exemplars):
     ##Final Step: calculate mean of each form's exemplar cloud
     final_exemplar_means = {
     cat: {
-        form: np.round(np.mean(clouds[cat][form][-250:]), 3)  # Compute mean & round, only for final 250 exemplars in each category. This models decay kind of
+        form: np.round(np.mean(clouds[cat][form][-10:]), 3)  # Compute mean & round, only for final 50 exemplars in each category. This models decay kind of
         for form in clouds[cat]  # Iterate over words in each category
     }
     for cat in categories  # Iterate over categories
@@ -216,18 +216,18 @@ def multiple_trials(clouds, num_exemplars, num_trials):
         #plot the exemplar nasalance values over time
         #updating label colors and markers
         color_map = {
-            'taa': '#003c6c', 'kii': '#fdc700', 
-            'tAA': '#da216d', 'kII': '#93c02d',
-            'taa-n': '#003c6c', 'kii-n': '#fdc700',
-            'tAA-n': '#da216d', 'kII-n': '#93c02d'}
+            'taa': '#006aad', 'kii': '#fdc700', 
+            'tAA': '#708090', 'kII': '#961E25',
+            'taa-n': '#006aad', 'kii-n': '#fdc700',
+            'tAA-n': '#708090', 'kII-n': '#961E25'}
         marker_map = {
             'taa': 'o', 'kii': 'o', 
             'tAA': 'o', 'kII': 'o',
-            'taa-n': 'x', 'kii-n': 'x',
-            'tAA-n': 'x', 'kII-n': 'x'
+            'taa-n': '^', 'kii-n': '^',
+            'tAA-n': '^', 'kII-n': '^'
             }
 
-        plt.figure(figsize = (10, 6))
+        plt.figure(figsize = (12, 6))#, facecolor = '#E9E5DC')
         #preparing legend labels with mean values from final_means
         legend_labels = []
 
@@ -242,13 +242,14 @@ def multiple_trials(clouds, num_exemplars, num_trials):
                 nasalance = [entry[1] for entry in data_points if entry[2] == word]
 
                 #Generating scatterplot
-                plt.scatter(iteration, nasalance, label = word, alpha = 0.5, s = 10, color = color_map[word], marker = marker_map[word])
+                plt.scatter(iteration, nasalance, label = word, alpha = 0.5, s = 50, color = color_map[word], marker = marker_map[word])
 
         plt.xlabel("Exemplar Production Iteration", fontweight = 'bold')
         plt.ylabel("Nasalance", fontweight = 'bold')
         plt.title("Exemplar Changes in Nasalance Over Time", fontweight = 'bold')
-        plt.legend(legend_labels, title = "words (μ nasalance)", bbox_to_anchor = (1, 1), loc = 'upper left')
+        plt.legend(legend_labels, title = "words (μ nasalance)", bbox_to_anchor = (1, 1), loc = 'upper left', edgecolor = 'black') #facecolor = '#E9E5DC',
         plt.grid(False)
+        #plt.gca().set_facecolor('#E9E5DC') #for changing background color of subplot
         plt.show()
                 
     #Step 3: Convert trial_means to df and return the results
@@ -256,7 +257,7 @@ def multiple_trials(clouds, num_exemplars, num_trials):
     return exemplar_trials
 
 
-exemplar_trials = multiple_trials(exemplar_clouds, num_exemplars=5000, num_trials=2)
+exemplar_trials = multiple_trials(exemplar_clouds, num_exemplars=2000, num_trials=100)
 
 end_time = time.perf_counter()
 print(f"Execution time: {round(end_time - start_time, 2)} seconds/{round((end_time - start_time)/60, 2)} minutes")
