@@ -5,16 +5,15 @@ Created on Wed Apr 16 14:37:36 2025
 
 @author: joncparamore
 """
-import time
 import random
 import numpy as np
+import scipy.optimize
+import time
 import matplotlib.pyplot as plt
 import pandas as pd
-import scipy.optimize
+import copy
 
-#for calculating how long the model needs to run for.
 start_time = time.perf_counter()
-
 ####Model Input: Dictionary of lists with four word forms and their starting nasalance values.
 #Nasalance values must be between 0 and 1, and for the simple model, they are set at either 0 or 1.
 #four categories correspond to oral (ORAL), nasal (NAS), oral with nasal suffix (ORAL-N), and nasal with nasal suffix (NAS-N)
@@ -67,7 +66,7 @@ def channel_constraint(exemplar_val, exemplar_cat, clouds):
     else:
         return 0.0
 
-#morphological constraint:penalize morphologically related forms that are far from each other in nasalance
+#morphological bias:penalize morphologically related forms that are far from each other in nasalance
 def morphological_constraint(exemplar_val, exemplar_form, exemplar_cat, clouds):
     if not exemplar_cat.endswith('-N'): #ensuring base forms are not drawn toward genitive forms by assigning a 0.0 penalty
         return 0.0
@@ -90,15 +89,36 @@ def category_constraint(exemplar_val, exemplar_form, clouds):
         category_penalty += (related_form_mean - exemplar_val)**2/len(related_forms)
     return category_penalty
 
-####Objective function - calculates penalty of current exemplar_val (filler for now)
+#Define the frequency of each form. What approximate proportion of exemplars do you want from each form?
+category_frequencies = [.25, .8, .8, .75] #there are four categories in exemplar_clouds: [oral, nasal, oral-n, nasal-n]
+form_frequencies = [.5, .5] #there are two forms from each category in exemplar_clouds
+      
+####Objective function - calculates penalty of current exemplar_val in relation to constraints and frequency of forms
 def objective(exemplar_val, exemplar_form, exemplar_cat, clouds):
-            
-    #Step 1: Determine the penalty scalars based on frequency (static for channel_constraint at this point)
-    channel_constraint_scalar = 8
-    morphological_constraint_scalar = 1
-    category_constraint_scalar = 1
     
-    #Step 2: Calculate the penalty for the current exemplar
+    #Step 1: Determine Frequency of morphologically related form (e.g., taa and taa-n)
+    morph_base_form = semantic_pairs[exemplar_form][1]
+    morph_base_cat = form_to_category[morph_base_form]
+    morph_base_form_freq = len(clouds[morph_base_cat][morph_base_form])
+    
+    #Step 2: Determine total Frequency of inflectionally related forms (e.g., for taa-n: kii-n, kII-n, etc. are inflectionally related with genitive suffix)
+    cat_relation_freq = 0
+    for form in category_pairs[exemplar_form]:
+        form_cat = form_to_category[form]
+        cat_relation_freq += len(clouds[form_cat][form])
+    
+    #Step 3: Determine total number of exemplars produced in the entire exemplar system
+    total_exemplar_freq = 0
+    for cat, forms in clouds.items():
+        for form in forms:
+            total_exemplar_freq += len(forms[form])
+            
+    #Step 4: Determine the penalty scalars based on frequency (static for channel_constraint at this point)
+    channel_constraint_scalar = .75
+    morphological_constraint_scalar = morph_base_form_freq / total_exemplar_freq
+    category_constraint_scalar = cat_relation_freq / total_exemplar_freq
+    
+    #Step 5: Calculate the penalty for the current exemplar
     return (channel_constraint(exemplar_val[0], exemplar_cat, clouds)*channel_constraint_scalar + 
             morphological_constraint(exemplar_val[0], exemplar_form, exemplar_cat, clouds)*morphological_constraint_scalar + 
             category_constraint(exemplar_val[0], exemplar_form, clouds)*category_constraint_scalar)
@@ -115,7 +135,7 @@ def exemplar_accumulation(clouds, num_exemplars):
                 data_points.append((0, value, word))
     #store categories in clouds dictionary as a list for fast lookup
     categories = list(clouds.keys())
-    #store individual words in list of values associated with the category as the key
+    #store individual words in dict of values associated with the category as the key
     semantic_forms = {}
     for cat in categories:
         semantic_forms[cat] = []
@@ -126,12 +146,11 @@ def exemplar_accumulation(clouds, num_exemplars):
     for i in range(num_exemplars):
         
         ##step 1: create a new exemplar
-        #randomly choose one exemplar category for production from clouds dictionary
-        new_exemplar_cat = random.choice(categories)
-        #randomly choose one form from that category for production
-        new_exemplar_form = random.choice(semantic_forms[new_exemplar_cat])
-
-        #make the mean value of that form the starting value for the new exemplar (entrenchment)
+        #choose one exemplar category for production from clouds dictionary based on the prespecified category frequencies
+        new_exemplar_cat = random.choices(categories, weights = category_frequencies, k = 1)[0]
+        #choose one form from that category for production based on the frequency of each form in that category
+        new_exemplar_form = random.choices(semantic_forms[new_exemplar_cat], weights = form_frequencies, k = 1)[0]
+        ##make the mean value of that form the starting value for the new exemplar (entrenchment)
         new_exemplar_val = np.mean(clouds[new_exemplar_cat][new_exemplar_form])
         
         ##Step 2: Optimize the new exemplar
@@ -151,7 +170,7 @@ def exemplar_accumulation(clouds, num_exemplars):
         
         final_exemplar_val = optimized_exemplar_val.x[0]
         
-        ##step 3: add random noise
+        ##Step 3: add random noise to optimized exemplar
         final_exemplar_val = random_noise(final_exemplar_val, new_exemplar_form, new_exemplar_cat, clouds)
         
         ##Step 4: Categorize new exemplar into appropriate category
@@ -159,11 +178,10 @@ def exemplar_accumulation(clouds, num_exemplars):
         
         #append new exemplar to data_points list for plotting
         data_points.append((i, final_exemplar_val, new_exemplar_form))
-        
     ##Final Step: calculate mean of each form's exemplar cloud
     final_exemplar_means = {
     cat: {
-        form: np.round(np.mean(clouds[cat][form]), 3)  # Compute mean & round
+        form: np.round(np.mean(clouds[cat][form][-250:]), 3)  # Compute mean & round, only for final 250 exemplars in each category. This models decay kind of
         for form in clouds[cat]  # Iterate over words in each category
     }
     for cat in categories  # Iterate over categories
@@ -182,7 +200,11 @@ def multiple_trials(clouds, num_exemplars, num_trials):
     trial_num = 0
     while trial_num < num_trials:
         trial_num += 1
-        final_means, data_points = exemplar_accumulation(clouds, num_exemplars)
+        
+        #deep copy original exemplar_clouds to avoid modification of external cloud values
+        trial_clouds = copy.deepcopy(clouds)
+        
+        final_means, data_points = exemplar_accumulation(trial_clouds, num_exemplars)
         for cat, forms in final_means.items():
             for form, mean_nasalance in forms.items():
                 trial_means.append({
@@ -234,7 +256,7 @@ def multiple_trials(clouds, num_exemplars, num_trials):
     return exemplar_trials
 
 
-exemplar_trials = multiple_trials(exemplar_clouds, num_exemplars=5000, num_trials=1)
+exemplar_trials = multiple_trials(exemplar_clouds, num_exemplars=5000, num_trials=2)
 
 end_time = time.perf_counter()
 print(f"Execution time: {round(end_time - start_time, 2)} seconds/{round((end_time - start_time)/60, 2)} minutes")
